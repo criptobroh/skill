@@ -31,7 +31,7 @@ class Config:
     # API
     CORS_ORIGINS: list[str] = os.getenv(
         "SKILLOPS_CORS_ORIGINS",
-        "http://localhost:3000,http://127.0.0.1:3000"
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8888,http://127.0.0.1:8888"
     ).split(",")
 
     # Database

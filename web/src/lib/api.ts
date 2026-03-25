@@ -1,4 +1,5 @@
 import type { AuditResult, AuditListItem } from './types';
+import { brand } from './branding';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8082';
 
@@ -70,6 +71,13 @@ export async function deleteAudit(auditId: string) {
   return apiFetch<{ message: string }>(`/api/audit/${auditId}`, { method: 'DELETE' });
 }
 
+export async function renameAudit(auditId: string, name: string) {
+  return apiFetch<{ message: string; name: string }>(`/api/audit/${auditId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name }),
+  });
+}
+
 export async function uploadSkills(files: File[]) {
   const formData = new FormData();
   files.forEach(file => formData.append('files', file));
@@ -100,4 +108,64 @@ export async function analyzeUploaded(tempDir: string, useLlm = true) {
 
 export async function testOpenAI() {
   return apiFetch<{ status: string; message: string }>('/api/test-openai');
+}
+
+export async function downloadAuditPdf(auditId: string): Promise<void> {
+  const token = localStorage.getItem('skillops_token');
+  const res = await fetch(`${API_URL}/api/audit/${auditId}/pdf`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  if (!res.ok) {
+    if (res.status === 401) {
+      localStorage.removeItem('skillops_token');
+      window.location.href = '/login';
+      throw new Error('Sesion expirada');
+    }
+    const error = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(error.detail || `Error ${res.status}`);
+  }
+
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `auditoria-${auditId}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+}
+
+export async function exportReportPdf(data: AuditResult): Promise<void> {
+  const token = localStorage.getItem('skillops_token');
+  const res = await fetch(`${API_URL}/api/export/pdf`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ ...data, brand: brand.footer }),
+  });
+
+  if (!res.ok) {
+    if (res.status === 401) {
+      localStorage.removeItem('skillops_token');
+      window.location.href = '/login';
+      throw new Error('Sesion expirada');
+    }
+    const error = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(error.detail || `Error ${res.status}`);
+  }
+
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const timestamp = data.timestamp?.slice(0, 10).replace(/-/g, '') || 'export';
+  a.download = `auditoria-${timestamp}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
 }

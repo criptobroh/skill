@@ -48,6 +48,8 @@ export interface AuditSummary {
 export type SimilarityMatrix = Record<string, Record<string, number>>;
 
 export interface AuditResult {
+  audit_id?: string;
+  name?: string;
   timestamp: string;
   resumen: AuditSummary;
   skills: Skill[];
@@ -58,6 +60,7 @@ export interface AuditResult {
 
 export interface AuditListItem {
   id: string;
+  name?: string;
   status: string;
   progress: number;
   message: string;
@@ -66,6 +69,6 @@ export interface AuditListItem {
   completed_at?: string;
 }
 
-export type TabId = 'overview' | 'skills' | 'overlaps' | 'matrix' | 'upload';
+export type TabId = 'overview' | 'skills' | 'overlaps' | 'matrix' | 'upload' | 'history';
 export type Theme = 'light' | 'dark' | 'system';
 export type Severity = 'critica' | 'alta' | 'media' | 'baja';

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { brand } from '@/lib/branding';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
@@ -221,7 +222,7 @@ export default function LoginPage() {
         {/* Footer */}
         <div className="mt-8 text-center">
           <p className="text-xs text-[#475569]">
-            Grupo IEB · Plataforma interna
+            {brand.name} · {brand.tagline}
           </p>
         </div>
       </div>

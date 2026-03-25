@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Callable
 
 from .parser import Skill, parse_skill_directory
 from .llm import analyze_skill
@@ -10,6 +10,9 @@ from .detectors.overlap import detect_overlaps, build_similarity_matrix, Overlap
 from .detectors.quality import detect_quality_issues, QualityIssue
 from .detectors.references import detect_broken_references, BrokenReference
 from .detectors.duplicates import detect_duplicates, Duplicate
+
+# Type for progress callback: (progress: int, message: str) -> None
+ProgressCallback = Callable[[int, str], None]
 
 
 @dataclass
@@ -136,20 +139,42 @@ class AuditReport:
 class SkillAnalyzer:
     """Analizador principal de skills"""
 
-    def __init__(self, use_llm: bool = True, overlap_threshold: float = 0.75):
+    def __init__(self, use_llm: bool = True, overlap_threshold: float = 0.75,
+                 on_progress: Optional[ProgressCallback] = None):
         self.use_llm = use_llm
         self.overlap_threshold = overlap_threshold
+        self.on_progress = on_progress
+
+    def _report_progress(self, progress: int, message: str):
+        """Report progress if callback is set"""
+        if self.on_progress:
+            self.on_progress(progress, message)
 
     def analyze_directory(self, directory: str) -> AuditReport:
         """Analiza todos los skills de un directorio"""
+        self._report_progress(10, "Parseando skills...")
         skills = parse_skill_directory(directory)
         return self.analyze_skills(skills)
 
     def analyze_skills(self, skills: list[Skill]) -> AuditReport:
         """Analiza una lista de skills"""
+        total_skills = len(skills)
+
+        # Progress distribution:
+        # 10-15: Parsing (already done in analyze_directory)
+        # 15-70: LLM analysis per skill (main work)
+        # 70-80: Overlaps detection
+        # 80-90: Quality issues + references + duplicates
+        # 90-100: Building matrix + finalizing
+
         # Análisis individual de cada skill
         skill_analyses = []
-        for skill in skills:
+        for i, skill in enumerate(skills):
+            # Calculate progress: 15% to 70% for LLM analysis
+            if total_skills > 0:
+                skill_progress = 15 + int((i / total_skills) * 55)
+                self._report_progress(skill_progress, f"Analizando skill {i+1}/{total_skills}: {skill.name}")
+
             sa = SkillAnalysis(skill=skill)
 
             if self.use_llm:
@@ -170,6 +195,7 @@ class SkillAnalyzer:
             skill_analyses.append(sa)
 
         # Detectar solapamientos
+        self._report_progress(72, "Detectando solapamientos...")
         overlaps = detect_overlaps(
             skills,
             threshold=self.overlap_threshold,
@@ -177,16 +203,22 @@ class SkillAnalyzer:
         )
 
         # Detectar issues de calidad
+        self._report_progress(80, "Analizando calidad...")
         quality_issues = detect_quality_issues(skills, use_llm=self.use_llm)
 
         # Detectar referencias rotas
+        self._report_progress(85, "Verificando referencias...")
         broken_refs = detect_broken_references(skills)
 
         # Detectar duplicados
+        self._report_progress(88, "Buscando duplicados...")
         duplicates = detect_duplicates(skills)
 
         # Construir matriz de similitud
+        self._report_progress(92, "Construyendo matriz de similitud...")
         similarity_matrix = build_similarity_matrix(skills)
+
+        self._report_progress(98, "Finalizando reporte...")
 
         return AuditReport(
             timestamp=datetime.now().isoformat(),

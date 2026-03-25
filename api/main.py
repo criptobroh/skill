@@ -15,7 +15,7 @@ load_dotenv(Path(__file__).parent.parent / '.env')
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
 
@@ -28,9 +28,10 @@ from core.config import config
 from core.database import (
     init_db, create_audit, update_audit_status,
     save_audit_result, get_audit, get_audit_result,
-    list_audits, delete_audit
+    list_audits, delete_audit, rename_audit
 )
 from core.auth import auth_middleware, authenticate_user, create_access_token
+from core.pdf_generator import generate_audit_pdf
 
 
 @asynccontextmanager
@@ -47,7 +48,10 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS configurable
+# Auth middleware (se agrega primero para que se ejecute DESPUÉS de CORS)
+app.add_middleware(BaseHTTPMiddleware, dispatch=auth_middleware)
+
+# CORS configurable (se agrega después para que se ejecute PRIMERO)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ORIGINS,
@@ -55,9 +59,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Auth middleware
-app.add_middleware(BaseHTTPMiddleware, dispatch=auth_middleware)
 
 
 # Error handling global
@@ -146,16 +147,62 @@ async def start_audit(request: AuditRequest, background_tasks: BackgroundTasks):
 
 async def run_audit(audit_id: str, directory: str, use_llm: bool, threshold: float):
     """Ejecuta la auditoría en background"""
+    import asyncio
+
+    # Store for progress updates from sync callback
+    progress_state = {"progress": 10, "message": "Iniciando..."}
+
+    def on_progress(progress: int, message: str):
+        """Sync callback that stores progress for async update"""
+        progress_state["progress"] = progress
+        progress_state["message"] = message
+
     try:
         await update_audit_status(audit_id, "running", 10, "Parseando skills...")
 
-        analyzer = SkillAnalyzer(use_llm=use_llm, overlap_threshold=threshold)
+        # Create analyzer with progress callback
+        analyzer = SkillAnalyzer(
+            use_llm=use_llm,
+            overlap_threshold=threshold,
+            on_progress=on_progress
+        )
 
-        await update_audit_status(audit_id, "running", 30, "Analizando con IA...")
+        # Run the synchronous analysis in a thread to avoid blocking
+        # and periodically update status from the progress_state
+        import concurrent.futures
+        loop = asyncio.get_event_loop()
 
-        report = analyzer.analyze_directory(directory)
+        # Task to periodically update the database with progress
+        analysis_done = asyncio.Event()
+        last_reported = {"progress": 0}
+
+        async def update_progress_periodically():
+            while not analysis_done.is_set():
+                current = progress_state["progress"]
+                if current != last_reported["progress"]:
+                    await update_audit_status(
+                        audit_id, "running",
+                        current, progress_state["message"]
+                    )
+                    last_reported["progress"] = current
+                await asyncio.sleep(0.5)
+
+        # Start progress updater
+        progress_task = asyncio.create_task(update_progress_periodically())
+
+        # Run analysis in thread pool
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            report = await loop.run_in_executor(
+                executor,
+                analyzer.analyze_directory,
+                directory
+            )
+
+        # Signal completion and wait for final update
+        analysis_done.set()
+        await progress_task
+
         result = report.to_dict()
-
         await save_audit_result(audit_id, result)
 
         # Guardar también como archivo para backward compatibility
@@ -212,6 +259,72 @@ async def delete_audit_endpoint(audit_id: str):
     if not deleted:
         raise HTTPException(status_code=404, detail="Auditoría no encontrada")
     return {"message": "Auditoría eliminada"}
+
+
+class RenameRequest(BaseModel):
+    name: str
+
+
+@app.patch("/api/audit/{audit_id}")
+async def rename_audit_endpoint(audit_id: str, request: RenameRequest):
+    """Renombra una auditoría"""
+    renamed = await rename_audit(audit_id, request.name)
+    if not renamed:
+        raise HTTPException(status_code=404, detail="Auditoría no encontrada")
+    return {"message": "Auditoría renombrada", "name": request.name}
+
+
+@app.get("/api/audit/{audit_id}/pdf")
+async def export_audit_pdf(audit_id: str):
+    """Exporta una auditoría como PDF"""
+    audit = await get_audit(audit_id)
+    if not audit:
+        raise HTTPException(status_code=404, detail="Auditoría no encontrada")
+
+    if audit["status"] != "completed":
+        raise HTTPException(status_code=400, detail="La auditoría no está completada")
+
+    result = await get_audit_result(audit_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Resultado no encontrado")
+
+    report_name = audit.get("name") or f"Auditoría {audit_id}"
+
+    try:
+        pdf_bytes = generate_audit_pdf(result, report_name)
+        filename = f"auditoria-{audit_id}.pdf"
+
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generando PDF: {str(e)}")
+
+
+@app.post("/api/export/pdf")
+async def export_report_pdf(request: Request):
+    """Genera PDF desde un resultado de auditoria enviado como JSON"""
+    try:
+        data = await request.json()
+        report_name = data.get("name") or "Auditoria SkillOps"
+        brand_name = data.get("brand") or "SkillOps"
+        pdf_bytes = generate_audit_pdf(data, report_name, brand_name)
+        timestamp = data.get("timestamp", "")[:10].replace("-", "")
+        filename = f"auditoria-{timestamp}.pdf"
+
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generando PDF: {str(e)}")
 
 
 @app.get("/api/ultimo-reporte")

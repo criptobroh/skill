@@ -1,4 +1,5 @@
 import type { AuditResult } from './types';
+import { brand } from './branding';
 
 function downloadFile(content: string, filename: string, type: string) {
   const blob = new Blob([content], { type });
@@ -90,7 +91,7 @@ export function exportToMarkdown(data: AuditResult) {
   }
 
   lines.push('---');
-  lines.push('*Generado por SkillOps - Grupo IEB*');
+  lines.push(`*Generado por SkillOps - ${brand.footer}*`);
 
   downloadFile(lines.join('\n'), `skillops-audit-${Date.now()}.md`, 'text/markdown');
 }

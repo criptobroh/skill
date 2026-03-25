@@ -17,6 +17,7 @@ async def init_db():
         await db.execute("""
             CREATE TABLE IF NOT EXISTS audits (
                 id TEXT PRIMARY KEY,
+                name TEXT,
                 status TEXT NOT NULL DEFAULT 'running',
                 progress INTEGER NOT NULL DEFAULT 0,
                 message TEXT NOT NULL DEFAULT '',
@@ -27,6 +28,11 @@ async def init_db():
                 completed_at TEXT
             )
         """)
+        # Migración: agregar columna name si no existe
+        try:
+            await db.execute("ALTER TABLE audits ADD COLUMN name TEXT")
+        except Exception:
+            pass  # Ya existe
         await db.execute("""
             CREATE TABLE IF NOT EXISTS audit_results (
                 audit_id TEXT PRIMARY KEY,
@@ -100,11 +106,22 @@ async def list_audits(limit: int = 20, offset: int = 0) -> list[dict]:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
-            "SELECT id, status, progress, message, directory, created_at, completed_at FROM audits ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            "SELECT id, name, status, progress, message, directory, created_at, completed_at FROM audits ORDER BY created_at DESC LIMIT ? OFFSET ?",
             (limit, offset)
         )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+
+async def rename_audit(audit_id: str, name: str) -> bool:
+    """Renombra una auditoría"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "UPDATE audits SET name=? WHERE id=?",
+            (name, audit_id)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
 
 
 async def delete_audit(audit_id: str) -> bool:
