@@ -87,7 +87,7 @@ function ToastItem({ toast, index, onRemove }: { toast: Toast; index: number; on
   };
 
   // Auto-remove completed/error toasts after 5s
-  const autoRemoveRef = useRef<NodeJS.Timeout>();
+  const autoRemoveRef = useRef<NodeJS.Timeout>(undefined);
   if ((toast.status === 'complete' || toast.status === 'error') && !autoRemoveRef.current && !isHovered) {
     autoRemoveRef.current = setTimeout(handleRemove, 5000);
   }
