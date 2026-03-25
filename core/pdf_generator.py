@@ -282,8 +282,8 @@ class AuditPDF(FPDF):
             if recomendacion:
                 self.set_font('Helvetica', 'I', 8)
                 self.set_text_color(*self.TEAL)
-                self.cell(5, 5, '>')
-                self.multi_cell(0, 5, recomendacion)
+                self.set_x(10)
+                self.multi_cell(0, 5, f'> {recomendacion}')
 
             # Separador
             self.ln(3)
@@ -330,11 +330,11 @@ class AuditPDF(FPDF):
             self.cell(0, 6, f'{skill}: {tipo}', new_x="LMARGIN", new_y="NEXT")
 
             # Descripción
-            self.set_x(18)
+            self.set_x(15)
             self.set_font('Helvetica', '', 9)
             self.set_text_color(*self.GRAY)
             desc = issue.get('descripcion', '-')
-            self.multi_cell(180, 5, desc)
+            self.multi_cell(0, 5, desc)
 
             # Sugerencia
             self.set_x(18)
@@ -404,10 +404,8 @@ class AuditPDF(FPDF):
         for i, rec in enumerate(recommendations, 1):
             self.set_font('Helvetica', 'B', 10)
             self.set_text_color(*self.DARK)
-            self.cell(8, 6, f'{i}.')
-
-            self.set_font('Helvetica', '', 10)
-            self.multi_cell(180, 6, rec)
+            self.set_x(10)
+            self.multi_cell(0, 6, f'{i}. {rec}')
             self.ln(3)
 
         # Próximos pasos
