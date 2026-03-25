@@ -38,17 +38,31 @@ def authenticate_user(username: str, password: str) -> bool:
     return username == ADMIN_USER and password == ADMIN_PASS
 
 
+def verify_api_key(api_key: str) -> bool:
+    """Verifica API key contra la password de admin"""
+    if not ADMIN_PASS:
+        return False
+    return api_key == ADMIN_PASS
+
+
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
 
     if path in PUBLIC_PATHS or request.method == "OPTIONS":
         return await call_next(request)
 
+    # Opcion 1: X-API-Key header (para automatizaciones)
+    api_key = request.headers.get("X-API-Key", "")
+    if api_key:
+        if verify_api_key(api_key):
+            return await call_next(request)
+        raise HTTPException(status_code=401, detail="API Key invalida")
+
+    # Opcion 2: Bearer token (para frontend)
     auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="No autorizado")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        verify_token(token)
+        return await call_next(request)
 
-    token = auth_header[7:]
-    verify_token(token)
-
-    return await call_next(request)
+    raise HTTPException(status_code=401, detail="No autorizado")
